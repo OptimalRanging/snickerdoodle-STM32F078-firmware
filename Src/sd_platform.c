@@ -58,6 +58,7 @@
 #include "sd_led.h"
 #include "sd_led_pattern.h"
 #include "sd_button.h"
+#include "power_manager.h"
 #include "sd_platform.h"
 
 /**
@@ -282,8 +283,12 @@ void HAL_GPIO_EXTI_Callback(uint16_t pin)
 			}
 			break;
 		
-		case JA1_P2_Pin:
 		case JA2_P2_Pin:
+			if (WakeupEnabled)
+				SleepTimer = 0;
+			break;
+
+		case JA1_P2_Pin:
 		case JB1_P2_Pin:
 		case JB2_P2_Pin:
 		case JC1_P2_Pin:
@@ -392,14 +397,71 @@ inline enum sd_uart_usb_err sd_uart_usb_transmit(struct sd_uart_dev *dev)
 	static uint8_t txbuff[CONS_UART_RX_BUFF_SIZE];
 	static uint32_t idx;
 	uint8_t state;
+	uint8_t byte;
 
-	while (rxbuff->len && (idx < CONS_UART_RX_BUFF_SIZE)) {
+	while (rxbuff->len && (idx < CONS_UART_RX_BUFF_SIZE)) 
+	{
 		/* Check for the end of the buffer and wrap */
 		if (rxbuff->out >= rxbuff->size)
 			rxbuff->out = 0;
     
-		/* Put the character in the secondary buffer */
-		txbuff[idx++] = rxbuff->buff[rxbuff->out++];
+		// Look for embedded platform controller packets
+		switch(PacketIndex)
+		{
+			case 0:
+				// STX indicates start of special packet
+				if (rxbuff->buff[rxbuff->out] == '\002') // STX
+				{
+					rxbuff->out++;
+					PacketIndex++;
+				}
+				// otherwise, just pass text through to USB
+				else
+				{
+					/* Put the character in the secondary buffer */
+					txbuff[idx++] = rxbuff->buff[rxbuff->out++];
+				}
+				break;
+			case 1:
+				byte = rxbuff->buff[rxbuff->out];
+				if (byte == '\003')
+				{
+					HeartbeatTimer = HEARTBEAT_CHECK_INTERVAL;
+					ZynqState = ZYNQ_ON;
+					PacketIndex = 0;
+				}
+				else
+				{
+					Command = rxbuff->buff[rxbuff->out];
+					Parameter = 0;
+					PacketIndex++;
+				}
+				rxbuff->out++;
+				break;
+			case 2:
+			case 3:
+			case 4:
+			case 5:
+				Parameter = (Parameter << 4) | HexTextToBinary(rxbuff->buff[rxbuff->out]);
+				rxbuff->out++;
+				PacketIndex++;
+				break;
+			case 6:
+				if (rxbuff->buff[rxbuff->out] == '\003') // ETX
+					DoCommand = 1;
+				else
+					DoCommand = 0;
+					
+				rxbuff->out++;
+				PacketIndex = 0;
+				break;
+			default:
+				Parameter = 0;
+				Command = 0;
+				DoCommand = 0;
+				PacketIndex = 0;
+				break;
+		}
     
 		/* Check for the end of the buffer and wrap */
 		if (rxbuff->out >= rxbuff->size)
@@ -409,9 +471,9 @@ inline enum sd_uart_usb_err sd_uart_usb_transmit(struct sd_uart_dev *dev)
 			rxbuff->len = 0;
     
 		/* Check if the UART interrupt has been triggered and end this loop */
-		if ((__HAL_UART_GET_IT(dev->uart, UART_IT_RXNE) != RESET) && 
-		    (__HAL_UART_GET_IT_SOURCE(dev->uart, UART_IT_RXNE) != RESET))
-			return SD_UART_USB_SUCCESS;  /* End the loop here so that the UART can operate */
+//		if ((__HAL_UART_GET_IT(dev->uart, UART_IT_RXNE) != RESET) && 
+//		    (__HAL_UART_GET_IT_SOURCE(dev->uart, UART_IT_RXNE) != RESET))
+//			return SD_UART_USB_SUCCESS;  /* End the loop here so that the UART can operate */
 	}
 
 	/* Transmit if there is anything to transmit */

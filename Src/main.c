@@ -74,6 +74,7 @@
 #include "sd_spi.h"
 #include "sd_spi_bridge.h"
 #include "sd_button.h"
+#include "power_manager.h"
 #include "sd_platform.h"
 
 
@@ -93,6 +94,11 @@ void SystemClock_Config(void);
  */
 int main(void)
 {
+	uint32_t doCommand;
+	uint32_t command;
+	uint32_t parameter;
+	uint32_t zynqState;
+	
 	enum sd_zynq_boot boot;
 	
 	/**
@@ -192,8 +198,73 @@ int main(void)
 	sd_zynq_clk_enable(TRUE);
 
 	/* Infinite loop */
-	while (1) {
-		HAL_Delay(250);
+	while (1) 
+	{
+		__disable_irq();
+		doCommand = DoCommand;
+		__enable_irq();
+		if (doCommand)
+		{
+			__disable_irq();
+			command = Command;
+			parameter = Parameter;
+			__enable_irq();
+			switch (command)
+			{
+				case 'A':  // Power off for Parameter minutes
+					//HAL_GPIO_WritePin(GREEN_GPIO_Port, GREEN_Pin, GPIO_PIN_SET);
+					__disable_irq();
+					SleepTimer = ONE_MINUTE*parameter;
+					__enable_irq();
+				
+					sd_zynq_disable();
+
+					__disable_irq();
+					ZynqState = ZYNQ_OFF;
+					__enable_irq();
+					break;
+				case 'B':  // Power off for Parameter minutes
+					if (parameter != 0)
+					{
+						__disable_irq();
+						WakeupEnabled = 1;
+						__enable_irq();
+					}
+					else
+					{
+						__disable_irq();
+						WakeupEnabled = 0;
+						__enable_irq();
+					}
+					break;
+				default:
+					break;
+			}
+			DoCommand = 0;
+			Command = 0;
+		}
+		
+		__disable_irq();
+		zynqState = ZynqState;
+		__enable_irq();
+		if ((SleepTimer == 0) && (zynqState == ZYNQ_OFF))
+		{
+			sd_zynq_enable();
+
+			__disable_irq();
+			ZynqState = ZYNQ_STATE_UNKNOWN;
+			__enable_irq();
+		}
+		if ((HeartbeatTimer == 0) && (zynqState == ZYNQ_ON))
+		{
+			sd_zynq_disable();
+
+			__disable_irq();
+			SleepTimer = TEN_MILLISECONDS;
+			ZynqState = ZYNQ_OFF;
+			__enable_irq();
+		}
+		HAL_Delay(1);
 	}
 }
 

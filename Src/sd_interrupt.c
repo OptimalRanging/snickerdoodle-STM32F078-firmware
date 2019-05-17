@@ -60,6 +60,7 @@
 #include "sd_spi_bridge.h"
 #include "sd_button.h"
 #include "sd_platform.h"
+#include "power_manager.h"
 #include "sd_interrupt.h"
 
 
@@ -135,6 +136,12 @@ void EXTI4_15_IRQHandler(void)
 void TIM7_IRQHandler(void)
 {
 	HAL_GPIO_WritePin(J2_P3_GPIO_Port, J2_P3_Pin, GPIO_PIN_SET);
+
+	if (SleepTimer != 0)
+		SleepTimer--;
+
+	if (HeartbeatTimer != 0)
+		HeartbeatTimer--;
 
 	sd_led_queuehandler(&app_led);
 	sd_led_queuehandler(&bluetooth_led);
